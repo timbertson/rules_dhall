@@ -4,3 +4,8 @@ sh_binary(
     name = "wrapper",
     srcs = ["wrapper.sh"],
 )
+
+sh_binary(
+    name = "deps",
+    srcs = ["deps.sh"],
+)

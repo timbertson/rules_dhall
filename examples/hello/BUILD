@@ -1,2 +1,2 @@
-load('//:rules.bzl', 'dhall_lib')
-dhall_lib()
+load('//:rules.bzl', 'dhall_library')
+dhall_library()

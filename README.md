@@ -58,28 +58,24 @@ bazel run //cmds:dhall-to-json -- —help
 # Dependencies
 
 When using dependencies, the original `rules_dhall` relied on dhall source files containing the exact hash corresponding to each dependency.
-When upgrading the bazel file, the correspnding source needs to be updated as well.
 
-This package uses dependency injection instead. When you pass in the following deps:
+This means that when upgrading a repote bazel import bazel file, the corresponding source needs to be updated as well, which is easy to forget.
+
+This package instead uses bazel to inject dependencies. There is a special `dhall_dependencies` rule which accepts a dictionary of dhall libraries:
 
 ```
-deps = {
+dhall_dependencies(name="dependencies.dhall", contents={
   'k8s': '@dhall_k8s/package',
   'prelude: '@dhall_prelude/package',
-}
+})
 ```
 
-Then during evaluation, the `DEPS` environment variable will be set to a dhall record with the same keys. To use it in your code, you would write:
+This will generate `dependencies.dhall` with the corresponding contents. You can include this as a `src` in any other dhall target, and import `./dependencies.dhall` from dhall.
 
-```
-let deps = env:DEPS
-let k8s = deps.k8s
-let prelude = deps.prelude
-in ...
-```
+Generating this dependency file with bazel has one big drawback: it makes local evaluation difficult (e.g in your shell / editor). To work around this, you can optionally generate a local version.
 
-This saves you from having to manage duplicate imports between bazel and dhall.
+To generate the corresponding dependency file locally, you can `bazel run` the target, e.g. `bazel run dependencies.dhall`. This will both generate the file and symlink it into your working directory (`bazel run` is a little strange since you're not actually running the dhall file, but `bazel build` can't access your workspace).
 
-However, such files can be more difficult to evaluate, since your editor / shell won't have an appropriate `$DEPS` value set.
+You shouldn't commit this in git, as it's a symlink to a configuration-dependent bazel path. And if you update your dependencies, you'll need to `bazel run` again. I'm open to improved workflows, if you have ideas.
 
-TODO generate a file, and/or spawn a shell with DEPS set. Then use e.g. env:DEPS ? ./deps.dhall
+You are of course welcome to ignore this dependency mechanism and use remote imports, but I don't know of a way to cache these across builds.
