@@ -14,13 +14,6 @@ _Deps = provider(
             "deps": "",
         })
 
-_DepsExe = provider(
-        doc="Deps info",
-        fields = {
-            "sources": "",
-            "exe": "",
-        })
-
 def _package_path_of_label(label):
   '''
   Returns the package path to a label from the workspace root
@@ -136,7 +129,7 @@ def _lib_impl(ctx):
               deps=None)
 
   return [
-    _DefaultInfoWithDepInstall(ctx, files = depset([
+    DefaultInfo(files = depset([
       source_file,
       cache_file,
     ])),
@@ -147,76 +140,6 @@ def _lib_impl(ctx):
     ),
     _Deps(deps = ctx.attr.deps),
   ]
-
-# def _generate_deps(ctx, output, use_binary):
-#   caches = []
-#   inputs = []
-#   args = []
-#   for dep, name in ctx.attr.deps.items():
-#       dep = dep[DhallLibrary]
-#       args.append(name)
-#       if use_binary:
-#           inputs.extend([dep.cache, dep.binary])
-#           args.append(dep.binary.path)
-#           caches.append(dep.cache.path)
-#       else:
-#           inputs.extend([dep.source])
-#           args.append(dep.source.path)
-#   env = { 'OUTPUT_TO': output.path }
-#   env['INLINE'] = 'false' if use_binary else 'true'
-#
-#   ctx.actions.run(
-#     executable = ctx.attr._script.files_to_run.executable,
-#     arguments = args,
-#     inputs = inputs,
-#     outputs = [output],
-#     env = env
-#   )
-#   return DhallDependencies(
-#     caches = caches,
-#     inputs = inputs,
-#     output = output,
-#     workspace_path = _path_of_label(ctx.label),
-#   )
-
-def _deps_exe(ctx):
-  exe = ctx.actions.declare_file(ctx.label.name + '-install.sh')
-  lines = [
-    '#!/usr/bin/env bash',
-    'set -eu -o pipefail',
-    'cd "$BUILD_WORKSPACE_DIRECTORY"',
-    'set -x',
-  ]
-  sources = []
-  for dep, path in (ctx.attr.deps or {}).items():
-    dep = dep[DhallLibrary]
-    local_path = _package_path_of_label(ctx.label) + '/' + path
-    sources.append(dep.source)
-    lines.append('ln -sfn "$BUILD_WORKSPACE_DIRECTORY/%s" "%s"' %
-                 (dep.source.path, local_path))
-    
-  ctx.actions.write(exe, '\n'.join(lines), is_executable=True)
-  return _DepsExe(sources = sources, exe = exe)
-
-def _DefaultInfoWithDepInstall(ctx, files):
-  exe = _deps_exe(ctx)
-  # todo these should be runfiles, but that obscures their location
-  return DefaultInfo(
-    files = depset(direct=exe.sources, transitive=[files]),
-    executable = exe.exe)
-
-# _deps_rule = rule(
-#     implementation = _deps_impl,
-#     executable = True,
-#     attrs = {
-#       "deps": attr.label_keyed_string_dict(providers = [DhallLibrary]),
-#       "_script": attr.label(
-#             default = Label("//cmds:deps"),
-#             executable = True,
-#             cfg="exec",
-#       ),
-#     }
-# )
 
 def _output_impl(ctx):
   path = _extract_path(ctx)
@@ -231,7 +154,7 @@ def _output_impl(ctx):
               deps = ctx.attr.deps)
 
   return [
-    _DefaultInfoWithDepInstall(ctx, files = depset([ output ])),
+    DefaultInfo(files = depset([ output ])),
     _Deps(deps = ctx.attr.deps),
   ]
 
@@ -248,62 +171,9 @@ def _make_rule(implementation, **kw):
     }
     attrs.update(kw['attrs'])
     args['attrs'] = attrs
-    args['executable'] = True
     return rule(implementation = implementation,
         toolchains = [TOOLCHAIN],
          **args)
-
-COMMON_ATTRS = {
-  # TODO rename file? matches dhall...
-  "path": attr.label(allow_single_file = True, mandatory = True),
-  "srcs": attr.label_list(),
-  "deps": attr.label_keyed_string_dict(providers = [DhallLibrary]),
-}
-
-_lib_rule = _make_rule(
-    implementation = _lib_impl,
-    # executable = True,
-    attrs = COMMON_ATTRS,
-)
-
-OUTPUT_ATTRS = {}
-OUTPUT_ATTRS.update(COMMON_ATTRS)
-OUTPUT_ATTRS.update({
-  "exe": attr.string(mandatory = True),
-  "dhall_args": attr.string_list(mandatory = True),
-})
-_output_rule = _make_rule(
-    implementation = _output_impl,
-    # executable = True,
-    attrs = OUTPUT_ATTRS,
-)
-
-def _symlink_deps_impl(ctx):
-  exe = ctx.actions.declare_file('install.sh')
-  target = ctx.attr.target
-  # if target == None:
-  #     fail("--target required")
-  lines = [
-    '#!/usr/bin/env bash',
-    'set -eu -o pipefail',
-    'cd "$BUILD_WORKSPACE_DIRECTORY"',
-    'set -x',
-    'echo "$@"',
-    'exit 1',
-  ]
-  sources = []
-  # deps = target[_Deps].deps or {}
-  # for dep, path in deps.items():
-  #   dep = dep[DhallLibrary]
-  #   local_path = _package_path_of_label(target) + '/' + path
-  #   sources.append(dep.source)
-  #   lines.append('ln -sfn "$BUILD_WORKSPACE_DIRECTORY/%s" "%s"' %
-  #                (dep.source.path, local_path))
-    
-  ctx.actions.write(exe, '\n'.join(lines), is_executable=True)
-  return DefaultInfo(
-    files = depset(sources),
-    executable = exe)
 
 def _util_impl(ctx):
   deps = {}
@@ -332,12 +202,27 @@ def _util_impl(ctx):
 
   return DefaultInfo(executable = exe)
 
-symlink_deps = rule(
-    implementation = _symlink_deps_impl,
-    executable = True,
-    attrs = {
-      'target': attr.label(providers = [_Deps]),
-    },
+COMMON_ATTRS = {
+  # TODO rename file? matches dhall...
+  "path": attr.label(allow_single_file = True, mandatory = True),
+  "srcs": attr.label_list(),
+  "deps": attr.label_keyed_string_dict(providers = [DhallLibrary]),
+}
+
+_lib_rule = _make_rule(
+    implementation = _lib_impl,
+    attrs = COMMON_ATTRS,
+)
+
+OUTPUT_ATTRS = {}
+OUTPUT_ATTRS.update(COMMON_ATTRS)
+OUTPUT_ATTRS.update({
+  "exe": attr.string(mandatory = True),
+  "dhall_args": attr.string_list(mandatory = True),
+})
+_output_rule = _make_rule(
+    implementation = _output_impl,
+    attrs = OUTPUT_ATTRS,
 )
 
 _dhall_util = rule(
@@ -369,15 +254,6 @@ def _fix_args(kw, default_path=True):
             deps[label] = path
         kw['deps'] = deps
     return kw
-
-# TODO rename deps -> contents
-#def dhall_dependencies(deps, name='dependencies.dhall'):
-#    # bazel supports a map of label -> string, but we want the opposite
-#    _deps = {}
-#    for dep_name, label in deps.items():
-#        _deps[label] = dep_name
-#
-#    return _deps_rule(name=name, deps=_deps)
 
 def dhall_library(name='package', **kw):
     return _lib_rule(name=name, **_fix_args(kw))
