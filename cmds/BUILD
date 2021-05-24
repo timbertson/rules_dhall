@@ -9,3 +9,5 @@ sh_binary(
     name = "deps",
     srcs = ["deps.sh"],
 )
+
+exports_files(["util-template.sh"])

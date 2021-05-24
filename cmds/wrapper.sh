@@ -2,19 +2,21 @@
 set -eu -o pipefail
 if [ "${DEBUG:-}" = 1 ]; then
 	echo "+ DHALL_CACHE_ARCHIVES=$DHALL_CACHE_ARCHIVES" >&2
-	echo "+ DEPS_IMPL=$DEPS_IMPL" >&2
-	echo "+ DEPS_PATH=${DEPS_IMPL:-}" >&2
+	echo "+ DHALL_INJECT=$DHALL_INJECT" >&2
 	set -x
 else
 	DEBUG=0
 fi
 mkdir -p .cache/dhall
 
-if [ -n "$DEPS_IMPL" ]; then
-	# a deps file has been built, but we need to place it
-	# in the workspace where the dhall file expects it
-	mkdir -p "$(dirname "$DEPS_PATH")"
-	ln -sfn "$(pwd)/$DEPS_IMPL" "$DEPS_PATH"
+if [ -n "$DHALL_INJECT" ]; then
+	echo "$DHALL_INJECT" | tr ':' '\n' | while true; do
+		# place each deps file in the workspace where the dhall file expects it
+		read dest || break
+		read impl
+		mkdir -p "$(dirname "$dest")"
+		ln -sfn "$(pwd)/$impl" "$dest"
+	done
 fi
 
 echo "$DHALL_CACHE_ARCHIVES" | tr ':' '\n' | while read f; do

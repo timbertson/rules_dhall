@@ -8,22 +8,24 @@ DhallLibrary = provider(
             "source": "Alpha-normalized source file",
         })
 
-DhallDependencies = provider(
-        doc="Set of dependencies",
+_Deps = provider(
+        doc="Deps attr",
         fields = {
-            "inputs": "list of files",
-            "caches": "list of strings",
-            "output": "output file",
-            "workspace_path": "",
+            "deps": "",
         })
 
-DhallSources = provider(
-        doc="enum for sources",
+_DepsExe = provider(
+        doc="Deps info",
         fields = {
-            "inputs": "plain inputs",
-            "dep_file": "optional DhallDependencies",
+            "sources": "",
+            "exe": "",
         })
 
+def _package_path_of_label(label):
+  '''
+  Returns the package path to a label from the workspace root
+  '''
+  return (label.package or '.')
 
 def _path_of_label(label):
   '''
@@ -34,22 +36,6 @@ def _path_of_label(label):
     path += '/'
   path += label.name
   return path
-
-def _extract_deps(srcs):
-  inputs = []
-  dep_file = None
-  for src in srcs:
-      # print(repr(src))
-      if DhallDependencies in src:
-          # print("dep: "+ repr(src))
-          dep = src[DhallDependencies]
-          dep_file = dep
-          inputs.append(dep.output)
-          inputs.extend(dep.inputs)
-      else:
-          # print("src: "+ repr(src))
-          inputs.append(src)
-  return DhallSources(inputs = inputs, dep_file = dep_file)
 
 def _exec_dhall(ctx, exe_name, arguments, inputs, srcs, deps, output=None, outputs=None, env={}):
   info = ctx.toolchains[Label(TOOLCHAIN)].dhall
@@ -68,7 +54,6 @@ def _exec_dhall(ctx, exe_name, arguments, inputs, srcs, deps, output=None, outpu
       fail("No such binary:" + exe_name)
 
   # weird way to write `copy()` :/
-  # copy()
   original_env = env
   env = {}
   env.update(original_env)
@@ -80,21 +65,19 @@ def _exec_dhall(ctx, exe_name, arguments, inputs, srcs, deps, output=None, outpu
   if outputs == None:
       fail("outputs (or output) not given")
 
+  inputs = inputs + srcs
   caches = []
-  dep_attrs = []
-  srcs = _extract_deps(srcs)
-  inputs = inputs + srcs.inputs
+  dhall_inject = []
+  for dep, path in (deps or {}).items():
+      dep = dep[DhallLibrary]
+      dhall_inject.extend([
+              _package_path_of_label(ctx.label) + '/' + path,
+              dep.binary.path
+      ])
+      caches.append(dep.cache.path)
+      inputs.extend([dep.cache, dep.binary])
 
-  if srcs.dep_file == None:
-      deps_impl = ''
-  else:
-      dep = srcs.dep_file
-      # print("DEP: " + repr(dep))
-      deps_impl = dep.output.path
-      caches = dep.caches
-      env['DEPS_PATH'] = dep.workspace_path
-
-  env['DEPS_IMPL'] = deps_impl
+  env['DHALL_INJECT'] = ':'.join(dhall_inject)
   env['DHALL_CACHE_ARCHIVES'] = ':'.join(caches)
   if ctx.attr.debug:
       env['DEBUG'] = '1'
@@ -108,6 +91,8 @@ def _exec_dhall(ctx, exe_name, arguments, inputs, srcs, deps, output=None, outpu
     progress_message = " ".join([exe_name] + arguments),
     env = env
   )
+
+
 
 def _extract_path(ctx):
   path = ctx.attr.path.files.to_list()
@@ -151,7 +136,7 @@ def _lib_impl(ctx):
               deps=None)
 
   return [
-    DefaultInfo(files = depset([
+    _DefaultInfoWithDepInstall(ctx, files = depset([
       source_file,
       cache_file,
     ])),
@@ -159,74 +144,79 @@ def _lib_impl(ctx):
             cache = cache_file,
             binary = binary_file,
             source = source_file,
-    )
+    ),
+    _Deps(deps = ctx.attr.deps),
   ]
 
-def _generate_deps(ctx, output, use_binary):
-  caches = []
-  dep_attrs = []
-  inputs = []
-  args = []
-  for dep, name in ctx.attr.deps.items():
-      dep = dep[DhallLibrary]
-      args.append(name)
-      if use_binary:
-          inputs.extend([dep.cache, dep.binary])
-          args.append(dep.binary.path)
-          caches.append(dep.cache.path)
-      else:
-          inputs.extend([dep.source])
-          args.append(dep.source.path)
-  env = { 'OUTPUT_TO': output.path }
-  env['INLINE'] = 'false' if use_binary else 'true'
+# def _generate_deps(ctx, output, use_binary):
+#   caches = []
+#   inputs = []
+#   args = []
+#   for dep, name in ctx.attr.deps.items():
+#       dep = dep[DhallLibrary]
+#       args.append(name)
+#       if use_binary:
+#           inputs.extend([dep.cache, dep.binary])
+#           args.append(dep.binary.path)
+#           caches.append(dep.cache.path)
+#       else:
+#           inputs.extend([dep.source])
+#           args.append(dep.source.path)
+#   env = { 'OUTPUT_TO': output.path }
+#   env['INLINE'] = 'false' if use_binary else 'true'
+#
+#   ctx.actions.run(
+#     executable = ctx.attr._script.files_to_run.executable,
+#     arguments = args,
+#     inputs = inputs,
+#     outputs = [output],
+#     env = env
+#   )
+#   return DhallDependencies(
+#     caches = caches,
+#     inputs = inputs,
+#     output = output,
+#     workspace_path = _path_of_label(ctx.label),
+#   )
 
-  ctx.actions.run(
-    executable = ctx.attr._script.files_to_run.executable,
-    arguments = args,
-    inputs = inputs,
-    outputs = [output],
-    env = env
-  )
-  return DhallDependencies(
-    caches = caches,
-    inputs = inputs,
-    output = output,
-    workspace_path = _path_of_label(ctx.label),
-  )
-
-def _deps_impl(ctx):
-  source = ctx.actions.declare_file(ctx.label.name)
-  binary = ctx.actions.declare_file(ctx.label.name + '.bin')
-  exe = ctx.actions.declare_file(ctx.label.name + '-install')
-  _generate_deps(ctx, source, use_binary=False)
-  dependency_file = _generate_deps(ctx, binary, use_binary=True)
-  local_path = _path_of_label(ctx.label)
-  
-  ctx.actions.write(exe, '''
-#!/usr/bin/env bash
-set -eu -o pipefail
-cd "$BUILD_WORKSPACE_DIRECTORY"
-set -x
-ln -sfn "$BUILD_WORKSPACE_DIRECTORY/%s" "%s"
-''' % (source.path, local_path), is_executable=True)
-
-  return [
-    DefaultInfo(files = depset([ source ]), executable = exe),
-    dependency_file
+def _deps_exe(ctx):
+  exe = ctx.actions.declare_file(ctx.label.name + '-install.sh')
+  lines = [
+    '#!/usr/bin/env bash',
+    'set -eu -o pipefail',
+    'cd "$BUILD_WORKSPACE_DIRECTORY"',
+    'set -x',
   ]
+  sources = []
+  for dep, path in (ctx.attr.deps or {}).items():
+    dep = dep[DhallLibrary]
+    local_path = _package_path_of_label(ctx.label) + '/' + path
+    sources.append(dep.source)
+    lines.append('ln -sfn "$BUILD_WORKSPACE_DIRECTORY/%s" "%s"' %
+                 (dep.source.path, local_path))
+    
+  ctx.actions.write(exe, '\n'.join(lines), is_executable=True)
+  return _DepsExe(sources = sources, exe = exe)
 
-_deps_rule = rule(
-    implementation = _deps_impl,
-    executable = True,
-    attrs = {
-      "deps": attr.label_keyed_string_dict(providers = [DhallLibrary]),
-      "_script": attr.label(
-            default = Label("//cmds:deps"),
-            executable = True,
-            cfg="exec",
-      ),
-    }
-)
+def _DefaultInfoWithDepInstall(ctx, files):
+  exe = _deps_exe(ctx)
+  # todo these should be runfiles, but that obscures their location
+  return DefaultInfo(
+    files = depset(direct=exe.sources, transitive=[files]),
+    executable = exe.exe)
+
+# _deps_rule = rule(
+#     implementation = _deps_impl,
+#     executable = True,
+#     attrs = {
+#       "deps": attr.label_keyed_string_dict(providers = [DhallLibrary]),
+#       "_script": attr.label(
+#             default = Label("//cmds:deps"),
+#             executable = True,
+#             cfg="exec",
+#       ),
+#     }
+# )
 
 def _output_impl(ctx):
   path = _extract_path(ctx)
@@ -234,14 +224,15 @@ def _output_impl(ctx):
   srcs = ctx.attr.srcs
   _exec_dhall(ctx,
               ctx.attr.exe,
-              ctx.attr.args + ['--file', path.path],
+              ctx.attr.dhall_args + ['--file', path.path],
               inputs = [path],
               srcs = srcs,
               output = output,
               deps = ctx.attr.deps)
 
   return [
-    DefaultInfo(files = depset([ output ])),
+    _DefaultInfoWithDepInstall(ctx, files = depset([ output ])),
+    _Deps(deps = ctx.attr.deps),
   ]
 
 def _make_rule(implementation, **kw):
@@ -257,6 +248,7 @@ def _make_rule(implementation, **kw):
     }
     attrs.update(kw['attrs'])
     args['attrs'] = attrs
+    args['executable'] = True
     return rule(implementation = implementation,
         toolchains = [TOOLCHAIN],
          **args)
@@ -265,13 +257,12 @@ COMMON_ATTRS = {
   # TODO rename file? matches dhall...
   "path": attr.label(allow_single_file = True, mandatory = True),
   "srcs": attr.label_list(),
-  # "deps": attr.label_keyed_string_dict(providers = [DhallLibrary]),
-  # TODO remove
-  "deps": attr.label(allow_single_file = True, providers = [DhallDependencies]),
+  "deps": attr.label_keyed_string_dict(providers = [DhallLibrary]),
 }
 
 _lib_rule = _make_rule(
     implementation = _lib_impl,
+    # executable = True,
     attrs = COMMON_ATTRS,
 )
 
@@ -279,37 +270,123 @@ OUTPUT_ATTRS = {}
 OUTPUT_ATTRS.update(COMMON_ATTRS)
 OUTPUT_ATTRS.update({
   "exe": attr.string(mandatory = True),
-  "args": attr.string_list(mandatory = True),
+  "dhall_args": attr.string_list(mandatory = True),
 })
 _output_rule = _make_rule(
     implementation = _output_impl,
+    # executable = True,
     attrs = OUTPUT_ATTRS,
 )
 
+def _symlink_deps_impl(ctx):
+  exe = ctx.actions.declare_file('install.sh')
+  target = ctx.attr.target
+  # if target == None:
+  #     fail("--target required")
+  lines = [
+    '#!/usr/bin/env bash',
+    'set -eu -o pipefail',
+    'cd "$BUILD_WORKSPACE_DIRECTORY"',
+    'set -x',
+    'echo "$@"',
+    'exit 1',
+  ]
+  sources = []
+  # deps = target[_Deps].deps or {}
+  # for dep, path in deps.items():
+  #   dep = dep[DhallLibrary]
+  #   local_path = _package_path_of_label(target) + '/' + path
+  #   sources.append(dep.source)
+  #   lines.append('ln -sfn "$BUILD_WORKSPACE_DIRECTORY/%s" "%s"' %
+  #                (dep.source.path, local_path))
+    
+  ctx.actions.write(exe, '\n'.join(lines), is_executable=True)
+  return DefaultInfo(
+    files = depset(sources),
+    executable = exe)
+
+def _util_impl(ctx):
+  deps = {}
+  if ctx.attr.deps:
+      deps = ctx.attr.deps
+  elif ctx.attr.deps_from:
+      deps = ctx.attr.deps_from[_Deps].deps
+
+  dhall_inject = []
+  inputs = []
+  for dep, path in deps.items():
+      dep = dep[DhallLibrary]
+      dhall_inject.extend([
+              _package_path_of_label(ctx.label) + '/' + path,
+              dep.source.path
+      ])
+      inputs.append(dep.source)
+  exe = ctx.actions.declare_file(ctx.label.name)
+  ctx.actions.expand_template(
+      template = ctx.file._template,
+      output = exe,
+      substitutions = {
+        '%{DHALL_INJECT}%': ':'.join(dhall_inject),
+      },
+      is_executable=True)
+
+  return DefaultInfo(executable = exe)
+
+symlink_deps = rule(
+    implementation = _symlink_deps_impl,
+    executable = True,
+    attrs = {
+      'target': attr.label(providers = [_Deps]),
+    },
+)
+
+_dhall_util = rule(
+    implementation = _util_impl,
+    executable = True,
+    attrs = {
+      'deps': COMMON_ATTRS['deps'],
+      'deps_from': attr.label(),
+      '_template': attr.label(
+        default = Label('//cmds:util-template.sh'),
+        allow_single_file = True,
+      ),
+    },
+)
+
+def dhall_util(name='util', **kw):
+  return _dhall_util(name=name, **_fix_args(kw, default_path=False))
+
 # TODO input_rule, for json-to-dhall etc
 
-def _fix_args(kw):
-    if 'path' not in kw:
-        kw['path'] = '//' + native.package_name() + ":package.dhall"
+def _fix_args(kw, default_path=True):
+    if default_path:
+        if 'path' not in kw:
+            kw['path'] = '//' + native.package_name() + ":package.dhall"
+    if 'deps' in kw:
+        # flip keys/values because bazel's label_keyed_string_dict is weird
+        deps = {}
+        for path, label in kw['deps'].items():
+            deps[label] = path
+        kw['deps'] = deps
     return kw
 
 # TODO rename deps -> contents
-def dhall_dependencies(deps, name='dependencies.dhall'):
-    # bazel supports a map of label -> string, but we want the opposite
-    _deps = {}
-    for dep_name, label in deps.items():
-        _deps[label] = dep_name
-
-    return _deps_rule(name=name, deps=_deps)
+#def dhall_dependencies(deps, name='dependencies.dhall'):
+#    # bazel supports a map of label -> string, but we want the opposite
+#    _deps = {}
+#    for dep_name, label in deps.items():
+#        _deps[label] = dep_name
+#
+#    return _deps_rule(name=name, deps=_deps)
 
 def dhall_library(name='package', **kw):
     return _lib_rule(name=name, **_fix_args(kw))
 
 def dhall_text(**kw):
-    return _output_rule(exe='dhall', args=['text'], **_fix_args(kw))
+    return _output_rule(exe='dhall', dhall_args=['text'], **_fix_args(kw))
 
 def dhall_to_json(**kw):
-    return _output_rule(exe='dhall-to-json', args=[], **_fix_args(kw))
+    return _output_rule(exe='dhall-to-json', dhall_args=[], **_fix_args(kw))
 
 def dhall_to_yaml(**kw):
-    return _output_rule(exe='dhall-to-yaml', args=[], **_fix_args(kw))
+    return _output_rule(exe='dhall-to-yaml', dhall_args=[], **_fix_args(kw))

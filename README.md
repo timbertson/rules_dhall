@@ -59,7 +59,7 @@ bazel run //cmds:dhall-to-json -- —help
 
 When using dependencies, the original `rules_dhall` relied on dhall source files containing the exact hash corresponding to each dependency.
 
-This means that when upgrading a repote bazel import bazel file, the corresponding source needs to be updated as well, which is easy to forget.
+This means that when upgrading a dependency, both the bazel dependency and the corresponding dhall import need to be updated independently, which makes for an awkward and brittle workflow.
 
 This package instead uses bazel to inject dependencies. There is a special `dhall_dependencies` rule which accepts a dictionary of dhall libraries:
 

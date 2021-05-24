@@ -1,3 +1,1 @@
-let deps = ./dependencies.dhall
-
-in "${deps.a.greeting}, ${deps.b.subject}!"
+"${(./dependencies/a.dhall).greeting}, ${(./dependencies/a.dhall).subject}!"

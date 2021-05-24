@@ -4,7 +4,6 @@ TOOLCHAIN = '@dhall_toolchain//:toolchain_type'
 # If a sha is present it improves caching (and security), unknown releases
 # will be downloaded without integrity checks or caching
 DIGESTS = {
-    '1.38.0': '02ec9efce241bfcd1ea0a586d3020dc2c50dc65576a1ed6366faada6fcff5382',
     'dhall-1.38.0-macos-x86_64': 'f78d830731539087b2e35ed5d034b192052f973c1a60654983efd9562ddaad1d',
     'dhall-json-1.38.0-macos-x86_64': '1cd5e54a2a21a92d1c3c0831af3c14a86c2de1851a1e390c1b87c9abb5e8a000',
     'dhall-yaml-1.38.0-macos-x86_64': '33132b4d6f69c0c8e799a1fe9c7f8e19062917d71fff59365b0fe9dee5621546',
