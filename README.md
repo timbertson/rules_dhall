@@ -8,10 +8,17 @@ rules_dhall fetches arbitrary releases of dhall from github (you specify the dha
 
 It supports sharing dhall libraries, as well as generating other files (text, json, yaml, etc) from dhall sources.
 
-To use it, add the `rules_dhall` repository to your WORKSPACE file (e.g. as a `http_archive`) and then:
+To use it, you need to add the repository and then call `setup_dhall` with the version of dhall you wish to use:
 
 ```
 # WORKSPACE
+rules_dhall_version = "1cbf2a8351de9c6ac845464bc03ebe0435959633"
+http_archive(
+    name = "rules_dhall",
+    type = "zip",
+    strip_prefix = "rules_dhall-%s" % rules_dhall_version,
+    url = "https://github.com/timbertson/rules_dhall/archive/%s.zip" % rules_dhall_version,
+)
 load("@rules_dhall//toolchain:setup.bzl", "setup_dhall")
 setup_dhall(version="1.38.0")
 ```
@@ -32,10 +39,10 @@ This normalizes the full expression into a single file, and includes metadata to
 
 Attribute  | Description |
 ---------- |  ---- |
-name       | __string; required.__
-file | __label; required.__
+name       | __string; default `package`.__
+file | __label; default `package.dhall`.__
 srcs       | __List of labels; optional.__ List of additional dhall files that are referenced from *file*.
-deps       | __List of labels; optional.__ Dictionary of dependencies (key: local file path, value: dhall_library target).
+deps       | __Dictionary of `path: label`; optional.__ Dictionary of dependencies (key: local file path, value: dhall_library label).
 verbose    | __bool; optional.__  If True, will output verbose logging to the console.
 
 ### dhall_text / dhall_to_yaml / dhall_to_json
@@ -44,12 +51,12 @@ These output rules produce some non-dhall files from a dhall expression.
 
 Attribute | Description |
 ----------| -----------| 
-file | __label; required.__
+name       | __string; required.__
+file | __label; default `package.dhall`.__
 srcs       | __List of labels; optional.__ List of additional dhall files that are referenced from *file*.
-deps      | __List of labels; optional.__ Dictionary of dependencies (key: local file path, value: dhall_library target).
+deps       | __Dictionary of `path: label`; optional.__ Dictionary of dependencies (key: local file path, value: dhall_library label).
 verbose   | __bool; optional.__  If True, will output verbose logging to the console.
 args      | __List of string; optional.__ Pass additional arguments to dhall-to-yaml, dhall-to-json, etc.
-
 
 ## Utility target
 
