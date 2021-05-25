@@ -12,7 +12,7 @@ To use it, you need to add the repository and then call `setup_dhall` with the v
 
 ```
 # WORKSPACE
-rules_dhall_version = "1cbf2a8351de9c6ac845464bc03ebe0435959633"
+rules_dhall_version = "<INSERT_LATEST_GIT_COMMIT>"
 http_archive(
     name = "rules_dhall",
     type = "zip",

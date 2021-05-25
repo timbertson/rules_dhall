@@ -30,7 +30,7 @@ def _path_of_label(label):
   path += label.name
   return path
 
-def _exec_dhall(ctx, exe_name, arguments, inputs, srcs, deps, output=None, outputs=None, env={}):
+def _exec_dhall(ctx, exe_name, arguments, src_depset, deps, output=None, outputs=None, env={}):
   info = ctx.toolchains[Label(TOOLCHAIN)].dhall
   dhall_exe = None
   dhall_target = None
@@ -58,7 +58,7 @@ def _exec_dhall(ctx, exe_name, arguments, inputs, srcs, deps, output=None, outpu
   if outputs == None:
       fail("outputs (or output) not given")
 
-  inputs = inputs + srcs
+  inputs = []
   caches = []
   dhall_inject = []
   for dep, path in (deps or {}).items():
@@ -78,7 +78,7 @@ def _exec_dhall(ctx, exe_name, arguments, inputs, srcs, deps, output=None, outpu
   ctx.actions.run(
     executable = ctx.attr._wrapper.files_to_run.executable,
     arguments = [dhall_exe.path] + arguments,
-    inputs = inputs,
+    inputs = depset(direct = inputs, transitive = [src_depset]),
     tools = dhall_target.files,
     outputs = outputs,
     progress_message = " ".join([exe_name] + arguments),
@@ -93,14 +93,16 @@ def _extract_file(ctx):
       fail("Invalid file")
   return file[0]
 
+def _join_file_and_srcs(file, srcs):
+  return depset(direct=[file], transitive = [src.files for src in srcs])
+
 def _lib_impl(ctx):
   file = _extract_file(ctx)
   source_file = ctx.actions.declare_file(ctx.label.name + '/package.dhall')
   _exec_dhall(ctx,
               'dhall',
               ['--alpha', '--file', file.path],
-              inputs = [file],
-              srcs = ctx.attr.srcs,
+              src_depset = _join_file_and_srcs(file, ctx.attr.srcs),
               output = source_file,
               deps = ctx.attr.deps)
 
@@ -108,9 +110,8 @@ def _lib_impl(ctx):
   _exec_dhall(ctx,
               'dhall',
               ['hash', '--file', source_file.path],
-              inputs = [source_file],
+              src_depset = depset([source_file]),
               output = hash_file,
-              srcs = [],
               deps=None)
 
   cache_file = ctx.actions.declare_file(ctx.label.name + '/cache')
@@ -118,8 +119,7 @@ def _lib_impl(ctx):
   _exec_dhall(ctx,
               'dhall',
               ['encode', '--file', source_file.path],
-              inputs = [source_file, hash_file],
-              srcs = [],
+              src_depset = depset([source_file, hash_file]),
               outputs = [cache_file, binary_file],
               env = {
                   'CAPTURE_HASH': hash_file.path,
@@ -144,12 +144,10 @@ def _lib_impl(ctx):
 def _output_impl(ctx):
   file = _extract_file(ctx)
   output = ctx.actions.declare_file(ctx.label.name)
-  srcs = ctx.attr.srcs
   _exec_dhall(ctx,
               ctx.attr.exe,
               ctx.attr.dhall_args + ctx.attr.args + ['--file', file.path],
-              inputs = [file],
-              srcs = srcs,
+              src_depset = _join_file_and_srcs(file, ctx.attr.srcs),
               output = output,
               deps = ctx.attr.deps)
 
@@ -212,10 +210,9 @@ def _util_impl(ctx):
       is_executable=True)
 
   return DefaultInfo(executable = exe, runfiles = ctx.runfiles(files=runfiles))
-
 COMMON_ATTRS = {
   "file": attr.label(allow_single_file = True, mandatory = True),
-  "srcs": attr.label_list(),
+  "srcs": attr.label_list(allow_files = True),
   "deps": attr.label_keyed_string_dict(providers = [DhallLibrary]),
 }
 
