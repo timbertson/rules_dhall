@@ -87,19 +87,19 @@ def _exec_dhall(ctx, exe_name, arguments, inputs, srcs, deps, output=None, outpu
 
 
 
-def _extract_path(ctx):
-  path = ctx.attr.path.files.to_list()
-  if len(path) != 1:
-      fail("Invalid path")
-  return path[0]
+def _extract_file(ctx):
+  file = ctx.attr.file.files.to_list()
+  if len(file) != 1:
+      fail("Invalid file")
+  return file[0]
 
 def _lib_impl(ctx):
-  path = _extract_path(ctx)
+  file = _extract_file(ctx)
   source_file = ctx.actions.declare_file(ctx.label.name + '/package.dhall')
   _exec_dhall(ctx,
               'dhall',
-              ['--alpha', '--file', path.path],
-              inputs = [path],
+              ['--alpha', '--file', file.path],
+              inputs = [file],
               srcs = ctx.attr.srcs,
               output = source_file,
               deps = ctx.attr.deps)
@@ -142,13 +142,13 @@ def _lib_impl(ctx):
   ]
 
 def _output_impl(ctx):
-  path = _extract_path(ctx)
+  file = _extract_file(ctx)
   output = ctx.actions.declare_file(ctx.label.name)
   srcs = ctx.attr.srcs
   _exec_dhall(ctx,
               ctx.attr.exe,
-              ctx.attr.dhall_args + ['--file', path.path],
-              inputs = [path],
+              ctx.attr.dhall_args + ctx.attr.args + ['--file', file.path],
+              inputs = [file],
               srcs = srcs,
               output = output,
               deps = ctx.attr.deps)
@@ -176,6 +176,7 @@ def _make_rule(implementation, **kw):
          **args)
 
 def _util_impl(ctx):
+
   deps = {}
   if ctx.attr.deps:
       deps = ctx.attr.deps
@@ -192,19 +193,28 @@ def _util_impl(ctx):
       ])
       inputs.append(dep.source)
   exe = ctx.actions.declare_file(ctx.label.name)
+
+  info = ctx.toolchains[Label(TOOLCHAIN)].dhall
+  runfiles = []
+  path = []
+  for target in info.bin_dirs:
+      runfiles.extend(target.files.to_list())
+      for file in target.files.to_list():
+          path.append('$PWD/' + file.dirname)
+
   ctx.actions.expand_template(
       template = ctx.file._template,
       output = exe,
       substitutions = {
         '%{DHALL_INJECT}%': ':'.join(dhall_inject),
+        '%{PATH}%': ':'.join(path),
       },
       is_executable=True)
 
-  return DefaultInfo(executable = exe)
+  return DefaultInfo(executable = exe, runfiles = ctx.runfiles(files=runfiles))
 
 COMMON_ATTRS = {
-  # TODO rename file? matches dhall...
-  "path": attr.label(allow_single_file = True, mandatory = True),
+  "file": attr.label(allow_single_file = True, mandatory = True),
   "srcs": attr.label_list(),
   "deps": attr.label_keyed_string_dict(providers = [DhallLibrary]),
 }
@@ -219,6 +229,7 @@ OUTPUT_ATTRS.update(COMMON_ATTRS)
 OUTPUT_ATTRS.update({
   "exe": attr.string(mandatory = True),
   "dhall_args": attr.string_list(mandatory = True),
+  "args": attr.string_list(mandatory = False, default=[]),
 })
 _output_rule = _make_rule(
     implementation = _output_impl,
@@ -228,6 +239,7 @@ _output_rule = _make_rule(
 _dhall_util = rule(
     implementation = _util_impl,
     executable = True,
+    toolchains = [TOOLCHAIN],
     attrs = {
       'deps': COMMON_ATTRS['deps'],
       'deps_from': attr.label(),
@@ -239,14 +251,14 @@ _dhall_util = rule(
 )
 
 def dhall_util(name='util', **kw):
-  return _dhall_util(name=name, **_fix_args(kw, default_path=False))
+  return _dhall_util(name=name, **_fix_args(kw, default_file=False))
 
 # TODO input_rule, for json-to-dhall etc
 
-def _fix_args(kw, default_path=True):
-    if default_path:
-        if 'path' not in kw:
-            kw['path'] = '//' + native.package_name() + ":package.dhall"
+def _fix_args(kw, default_file=True):
+    if default_file:
+        if 'file' not in kw:
+            kw['file'] = '//' + native.package_name() + ":package.dhall"
     if 'deps' in kw:
         # flip keys/values because bazel's label_keyed_string_dict is weird
         deps = {}

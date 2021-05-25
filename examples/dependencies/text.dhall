@@ -1,1 +1,1 @@
-"${(./dependencies/a.dhall).greeting}, ${(./dependencies/a.dhall).subject}!"
+"${(./dependencies/a.dhall).greeting}, ${(./dependencies/b.dhall).subject}!"

@@ -8,10 +8,7 @@ deps = {
     'dependencies/b.dhall': '//examples/dependencies/b:package',
 }
 
-dhall_text(name='text', path="text.dhall", deps = deps, debug=True)
-
-dhall_util(deps_from = "text")
-
+dhall_text(name='text', file="text.dhall", deps = deps)
 file_test(name="test_text", file="text", content="Hello, World!")
 
 dhall_to_json(name='json', deps = deps)
@@ -35,3 +32,5 @@ file_test(name="test_yaml", file="yaml", content=
   b:
     subject: World
 ''')
+
+dhall_util(deps_from = "text")

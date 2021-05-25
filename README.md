@@ -2,80 +2,100 @@
 
 This repo contains rules for using [Dhall](https://dhall-lang.org) in [bazel](https://bazel.build/) builds.
 
-<!--
-The rules use the method described by [@Gabriel439](https://github.com/Gabriel439) in [this answer](https://stackoverflow.com/questions/61139099/how-can-i-access-the-output-of-a-bazel-rule-from-another-rule-without-using-a-re)
- on stack overflow.
+It started as some improvements for [rules_dhall][original], but ended up becoming a full rewrite with many more features.
 
-rules_dhall fetches binary releases of dhall from github - see section [command targets](#command-targets).
+rules_dhall fetches arbitrary releases of dhall from github (you specify the dhall version in your WORKSPACE file).
+
+It supports sharing dhall libraries, as well as generating other files (text, json, yaml, etc) from dhall sources.
+
+To use it, add the `rules_dhall` repository to your WORKSPACE file (e.g. as a `http_archive`) and then:
+
+```
+# WORKSPACE
+load("@rules_dhall//toolchain:setup.bzl", "setup_dhall")
+setup_dhall(version="1.38.0")
+```
+
+```
+# BUILD
+load("@rules_dhall//rules.bzl", "dhall_library")
+dhall_library()
+```
+
+See example [dependencies](/examples/dependencies)
 
 ## Rule reference
 ### dhall_library
-This rule takes a dhall file and makes it available to other rules.  The output of the 
-rule is a tar archive that contains 3 files:
-* the binary encoded, alpha normalized dhall expression (.cache/dhall)
-* the dhall source file (source.dhall)
-* a placeholder that includes the sha256 hash (binary.dhall)
-   
+This rule takes a dhall file and makes it available to other rules.
+
+This normalizes the full expression into a single file, and includes metadata to enable efficient caching (TODO link).
+
 Attribute  | Description |
 ---------- |  ---- |
-name       | __string; required.__ 
-entrypoint | __label; required.__  This is name of the dhall file that contains the expression that is the entrypoint to the package.  Any dhall references from another dhall package _must_ include the sha256 hash.
-srcs       | __List of labels; optional.__ List of source files that are referenced from *entrypoint*.
-deps       | __List of labels; optional.__ List of dhall_library targets that this rule should depend on.
-data       | __List of labels; optional.__ The output of these targets will copied into this package so that dhall can reference them.
+name       | __string; required.__
+file | __label; required.__
+srcs       | __List of labels; optional.__ List of additional dhall files that are referenced from *file*.
+deps       | __List of labels; optional.__ Dictionary of dependencies (key: local file path, value: dhall_library target).
 verbose    | __bool; optional.__  If True, will output verbose logging to the console.
 
-See example [abcd](https://github.com/humphrej/dhall-bazel/tree/master/examples/abcd).
+### dhall_text / dhall_to_yaml / dhall_to_json
 
-### dhall_yaml / dhall_json
-   This rule runs a dhall output generator.  The output of the rule is the YAML or JSON file.
+These output rules produce some non-dhall files from a dhall expression.
 
 Attribute | Description |
 ----------| -----------| 
-entrypoint | __label; required.__  This is name of the dhall file that contains the expression that is the entrypoint to the package.  Any dhall references from another dhall package _must_ include the sha256 hash.
-srcs       | __List of labels; optional.__ List of source files that are referenced from *entrypoint*.
-deps      | __List of labels; optional.__ List of dhall_library targets that this rule depends on.
-data      | __List of labels; optional.__ The output of these targets will copied into this package so that dhall can reference them.
-out       | __string; optional.__ Defaults to the src file prefix plus an extension of ".yaml" or ".json".
+file | __label; required.__
+srcs       | __List of labels; optional.__ List of additional dhall files that are referenced from *file*.
+deps      | __List of labels; optional.__ Dictionary of dependencies (key: local file path, value: dhall_library target).
 verbose   | __bool; optional.__  If True, will output verbose logging to the console.
-args      | __List of string; optional.__ Adds additional arguments to dhall-to-yaml or dhall-to-json.
+args      | __List of string; optional.__ Pass additional arguments to dhall-to-yaml, dhall-to-json, etc.
 
-See example [abcd](https://github.com/humphrej/dhall-bazel/tree/master/examples/abcd)
 
-## Command targets
+## Utility target
 
-TODO implement these...
+The `dhall_util` rule creates a runnable target (invoked via `bazel run`), with a number of useful subcommands.
 
-To run dhall or dhall-to-yaml via bazel:
-```shell script
-bazel run //cmds:dhall -- —help
-bazel run //cmds:dhall-to-yaml -- —help
-bazel run //cmds:dhall-to-json -- —help
-``` 
+Attribute | Description |
+----------| -----------|
+name | __label; default `'util'`.__
 
--->
-
-# Dependencies
-
-When using dependencies, the original `rules_dhall` relied on dhall source files containing the exact hash corresponding to each dependency.
-
-This means that when upgrading a dependency, both the bazel dependency and the corresponding dhall import need to be updated independently, which makes for an awkward and brittle workflow.
-
-This package instead uses bazel to inject dependencies. There is a special `dhall_dependencies` rule which accepts a dictionary of dhall libraries:
+Sample use:
 
 ```
-dhall_dependencies(name="dependencies.dhall", contents={
-  'k8s': '@dhall_k8s/package',
-  'prelude: '@dhall_prelude/package',
+$ bazel run util -- exec which dhall
+/private/var/tmp/_bazel_tim/efa3e6520271e5b3f713522276be1fed/execroot/dhall/bazel-out/darwin-fastbuild/bin/examples/dependencies/util.runfiles/dhall/external/dhall_toolchain_macos-x86_64/dhall/bin/dhall
+```
+
+# Dependencies (remote imports)
+
+When using dependencies, the [original][original] `rules_dhall` relies on dhall source files containing the exact hash corresponding to each dependency.
+
+This means that when upgrading a dependency, both the bazel dependency and the corresponding dhall import need to be updated separately (but consistently), which makes for an awkward and brittle workflow.
+
+This package instead uses bazel to inject dependencies. Each rule accepts a `deps` dictionary which lets you place dhall libraries at the specified paths during execution:
+
+```
+dhall_library(name="package", deps={
+  'dependencies/k8s.dhall': '@dhall_k8s//:package',
+  'dependencies/prelude.dhall: '@dhall_prelude//:package',
 })
 ```
 
-This will generate `dependencies.dhall` with the corresponding contents. You can include this as a `src` in any other dhall target, and import `./dependencies.dhall` from dhall.
+This will place the given libraries as files during execution, so that you can rely on always using the version of the upstream dependency provided by bazel.
 
-Generating this dependency file with bazel has one big drawback: it makes local evaluation difficult (e.g in your shell / editor). To work around this, you can optionally generate a local version.
+Generating dependency files inside bazel has one big drawback: it makes local evaluation difficult (e.g in your shell / editor). To work around this, there is a `dhall_util` rule. This works with `bazel run` to provide some utility functions for development. e.g.:
 
-To generate the corresponding dependency file locally, you can `bazel run` the target, e.g. `bazel run dependencies.dhall`. This will both generate the file and symlink it into your working directory (`bazel run` is a little strange since you're not actually running the dhall file, but `bazel build` can't access your workspace).
+```
+# BUILD
+dhall_util(deps_from="package")
+```
 
-You shouldn't commit this in git, as it's a symlink to a configuration-dependent bazel path. And if you update your dependencies, you'll need to `bazel run` again. I'm open to improved workflows, if you have ideas.
+```
+$ bazel run util symlink
+```
 
-You are of course welcome to ignore this dependency mechanism and use remote imports, but I don't know of a way to cache these across builds.
+This will generate dependency files (as symlinks to bazel's build locations). These links are not stable and should not be committed to git, but can be useful for local development.
+
+If you would rather stick to remote imports in your source tree, you can still do that. You should still specify `deps` for your bazel targets though, so that you get the efficiency of a local dependency when building within bazel (remote imports cannot be cached across bazel builds).
+
+[original]: https://github.com/humphrej/rules_dhall

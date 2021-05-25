@@ -1,8 +1,20 @@
 #!/usr/bin/env bash
 set -eu -o pipefail
 DHALL_INJECT='%{DHALL_INJECT}%'
+
+function usage {
+	cat >&2 <<"EOF"
+Subcommands:
+
+symlink:           install symlinks for `deps`
+symlink_cleanup:   remove above symlinks (if present)
+exec:              exec a command with dhall tools added to $PATH
+EOF
+}
+
 if [ "$#" -lt 1 ]; then
 	echo >&2 "Not enough arguments"
+	usage
 	exit 1
 fi
 action="$1"
@@ -34,6 +46,16 @@ case "$action" in
 				echo >&2 "Skipping non-symlink: $dest"
 			fi
 		done
+		;;
+
+	exec)
+		PATH="%{PATH}%:${PATH}"
+		cd "$BUILD_WORKSPACE_DIRECTORY"
+		exec "$@"
+		;;
+
+	help)
+		usage
 		;;
 
 	*)
