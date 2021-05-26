@@ -97,8 +97,9 @@ def _join_file_and_srcs(file, srcs):
   return depset(direct=[file], transitive = [src.files for src in srcs])
 
 def _lib_impl(ctx):
+  # don't use .dhall extension due to https://github.com/bazelbuild/bazel/issues/11875
   file = _extract_file(ctx)
-  source_file = ctx.actions.declare_file(ctx.label.name + '/package.dhall')
+  source_file = ctx.actions.declare_file(ctx.label.name + '.dhall-source')
   _exec_dhall(ctx,
               'dhall',
               ['--alpha', '--file', file.path],
@@ -106,7 +107,7 @@ def _lib_impl(ctx):
               output = source_file,
               deps = ctx.attr.deps)
 
-  hash_file = ctx.actions.declare_file(ctx.label.name + '/hash')
+  hash_file = ctx.actions.declare_file(ctx.label.name + '.dhall-hash')
   _exec_dhall(ctx,
               'dhall',
               ['hash', '--file', source_file.path],
@@ -114,8 +115,8 @@ def _lib_impl(ctx):
               output = hash_file,
               deps=None)
 
-  cache_file = ctx.actions.declare_file(ctx.label.name + '/cache')
-  binary_file = ctx.actions.declare_file(ctx.label.name + '/binary.dhall')
+  cache_file = ctx.actions.declare_file(ctx.label.name + '.dhall-cache')
+  binary_file = ctx.actions.declare_file(ctx.label.name + '.dhall-binary')
   _exec_dhall(ctx,
               'dhall',
               ['encode', '--file', source_file.path],
@@ -174,7 +175,6 @@ def _make_rule(implementation, **kw):
          **args)
 
 def _util_impl(ctx):
-
   deps = {}
   if ctx.attr.deps:
       deps = ctx.attr.deps
@@ -198,7 +198,7 @@ def _util_impl(ctx):
   for target in info.bin_dirs:
       runfiles.extend(target.files.to_list())
       for file in target.files.to_list():
-          path.append('$PWD/' + file.dirname)
+          path.append('$EXEC_ROOT/' + file.dirname)
 
   ctx.actions.expand_template(
       template = ctx.file._template,
@@ -206,6 +206,7 @@ def _util_impl(ctx):
       substitutions = {
         '%{DHALL_INJECT}%': ':'.join(dhall_inject),
         '%{PATH}%': ':'.join(path),
+        '%{PACKAGE}%': _package_path_of_label(ctx.label),
       },
       is_executable=True)
 

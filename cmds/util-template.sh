@@ -20,10 +20,12 @@ fi
 action="$1"
 shift 1
 
+EXEC_ROOT="$(pwd)"
+cd "$BUILD_WORKSPACE_DIRECTORY/%{PACKAGE}%"
+
 case "$action" in
 	symlink)
 		# Note: copied from ./wrapper.sh
-		cd "$BUILD_WORKSPACE_DIRECTORY"
 		echo "$DHALL_INJECT" | tr ':' '\n' | while true; do
 			# place each deps file in the workspace where the dhall file expects it
 			read dest || break
@@ -35,7 +37,6 @@ case "$action" in
 		;;
 
 	symlink_cleanup)
-		cd "$BUILD_WORKSPACE_DIRECTORY"
 		echo "$DHALL_INJECT" | tr ':' '\n' | while true; do
 			read dest || break
 			read impl
@@ -50,7 +51,6 @@ case "$action" in
 
 	exec)
 		PATH="%{PATH}%:${PATH}"
-		cd "$BUILD_WORKSPACE_DIRECTORY"
 		exec "$@"
 		;;
 

@@ -60,11 +60,12 @@ args      | __List of string; optional.__ Pass additional arguments to dhall-to-
 
 ## Utility target
 
-The `dhall_util` rule creates a runnable target (invoked via `bazel run`), with a number of useful subcommands.
+The `dhall_util` rule creates a runnable target (invoked via `bazel run`), with a number of useful subcommands. Commands will be run in the package source, so they'll have access to your workspace files.
 
 Attribute | Description |
 ----------| -----------|
 name | __label; default `'util'`.__
+args      | __List of string; optional.__ Supply arguments to the utility script
 
 Sample use:
 
@@ -72,6 +73,15 @@ Sample use:
 $ bazel run util -- exec which dhall
 /private/var/tmp/_bazel_tim/efa3e6520271e5b3f713522276be1fed/execroot/dhall/bazel-out/darwin-fastbuild/bin/examples/dependencies/util.runfiles/dhall/external/dhall_toolchain_macos-x86_64/dhall/bin/dhall
 ```
+
+You can also use this to make ad-hoc utility targets, e.g:
+
+```
+# BUILD
+dhall_util(name='format', args=['exec', 'dhall', 'format', '--transitive', 'package.dhall'])
+```
+
+Then `bazel run format` will format your source code.
 
 # Dependencies (remote imports)
 
