@@ -97,7 +97,7 @@ def _dhall_toolchain_impl(ctx):
     build_lines.extend([
       'dhall_toolchain(',
       '  name="dhall-toolchain-%s",' % key,
-      '  bin_dirs=["@dhall_toolchain_bin_%s//:binaries"]' % key,
+      '  binaries="@dhall_toolchain_bin_%s//:binaries"' % key,
       ')',
       'toolchain(',
       '  name="toolchain-%s",' % key,

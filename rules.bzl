@@ -35,14 +35,11 @@ def _exec_dhall(ctx, exe_name, arguments, src_depset, deps, output=None, outputs
   dhall_exe = None
   dhall_target = None
 
-  # TODO this feels a bit silly...
-  for target in info.bin_dirs:
-      files = target.files.to_list()
-      for file in files:
-          if file.basename == exe_name:
-              # print("FOUND  " + repr(file))
-              dhall_exe = file
-              dhall_target = target
+  bin_files = info.binaries.files.to_list()
+  for bin_file in bin_files:
+      if bin_file.basename == exe_name:
+          # print("FOUND  " + repr(file))
+          dhall_exe = bin_file
   if dhall_exe == None:
       fail("No such binary:" + exe_name)
 
@@ -79,7 +76,7 @@ def _exec_dhall(ctx, exe_name, arguments, src_depset, deps, output=None, outputs
     executable = ctx.attr._wrapper.files_to_run.executable,
     arguments = [dhall_exe.path] + arguments,
     inputs = depset(direct = inputs, transitive = [src_depset]),
-    tools = dhall_target.files,
+    tools = info.binaries.files,
     outputs = outputs,
     progress_message = " ".join([exe_name] + arguments),
     env = env
@@ -195,10 +192,10 @@ def _util_impl(ctx):
   info = ctx.toolchains[Label(TOOLCHAIN)].dhall
   runfiles = []
   path = []
-  for target in info.bin_dirs:
-      runfiles.extend(target.files.to_list())
-      for file in target.files.to_list():
-          path.append('$EXEC_ROOT/' + file.dirname)
+  bin_files = info.binaries.files.to_list()
+  runfiles.extend(bin_files)
+  for file in bin_files:
+      path.append('$EXEC_ROOT/' + file.dirname)
 
   ctx.actions.expand_template(
       template = ctx.file._template,

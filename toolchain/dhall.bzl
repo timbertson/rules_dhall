@@ -1,18 +1,18 @@
 DhallInfo = provider(
     doc = "Dhall binaries",
     # TODO rename binaries
-    fields = ["bin_dirs"],
+    fields = ["binaries"],
 )
 
 def _dhall_toolchain_impl(ctx):
     toolchain_info = platform_common.ToolchainInfo(
-        dhall = DhallInfo(bin_dirs = ctx.attr.bin_dirs),
+        dhall = DhallInfo(binaries = ctx.attr.binaries),
     )
     return [toolchain_info]
 
 dhall_toolchain = rule(
     implementation = _dhall_toolchain_impl,
     attrs = {
-        "bin_dirs": attr.label_list(mandatory=True),
+        "binaries": attr.label(mandatory=True),
     },
 )
