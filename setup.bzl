@@ -64,7 +64,7 @@ def _binaries_impl(ctx):
       digest_key = "%s-%s-%s" % (tool, version, key)
       digest = DIGESTS.get(digest_key)
       if digest == None:
-        print("Note: no known digest for %s, add it to @rules_dhall/toolchain/setup.bzl for better caching" % digest_key)
+        print("Note: no known digest for %s, add it to @rules_dhall//:toolchain.bzl for better caching" % digest_key)
       ctx.download_and_extract(url=url, output=tool, sha256=digest or '')
   ctx.file("BUILD", 'filegroup(name="binaries", srcs=glob(["**/bin/*"]), visibility=["//visibility:public"])')
 
@@ -81,11 +81,11 @@ _binaries = repository_rule(
 # It's separate from the toolchain binaries so that we only
 # end up downloading binaries we need.
 def _dhall_toolchain_impl(ctx):
-  ctx.template("dhall.bzl", Label("//toolchain:dhall.bzl"))
+  ctx.template("toolchain.bzl", Label("//:toolchain.bzl"))
   build_lines = [
     'package(default_visibility = ["//visibility:public"])',
     'toolchain_type(name = "toolchain_type")',
-    'load("@dhall_toolchain//:dhall.bzl", "dhall_toolchain")',
+    'load("toolchain.bzl", "dhall_toolchain")',
   ]
 
   for key in PLATFORMS:

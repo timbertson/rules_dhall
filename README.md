@@ -2,11 +2,14 @@
 
 This repo contains rules for using [Dhall](https://dhall-lang.org) in [bazel](https://bazel.build/) builds.
 
-It started as some improvements for [rules_dhall][original], but ended up becoming a full rewrite with many more features.
+It started as some improvements for [rules_dhall][original], but ended up becoming a full rewrite. Its features include:
 
-rules_dhall fetches arbitrary releases of dhall from github (you specify the dhall version in your WORKSPACE file).
-
-It supports sharing dhall libraries, as well as generating other files (text, json, yaml, etc) from dhall sources.
+ - support for arbitrary dhall versions (specified in WORKSPACE file)
+ - generating text / JSON / YAML from dhall
+ - generating dhall from JSON / YAML (with optional schema)
+ - utility target for running ad-hoc commands (shell, format, etc)
+ - support for sharing dhall libraries (in efficient binary form)
+ - ability to inject dhall (bazel) dependencies (no need to write dhall remote imports if you have a bazel repository)
 
 To use it, you need to add the repository and then call `setup_dhall` with the version of dhall you wish to use:
 
@@ -19,13 +22,13 @@ http_archive(
     strip_prefix = "rules_dhall-%s" % rules_dhall_version,
     url = "https://github.com/timbertson/rules_dhall/archive/%s.zip" % rules_dhall_version,
 )
-load("@rules_dhall//toolchain:setup.bzl", "setup_dhall")
+load("@rules_dhall//:setup.bzl", "setup_dhall")
 setup_dhall(version="1.38.0")
 ```
 
 ```
 # BUILD
-load("@rules_dhall//rules.bzl", "dhall_library")
+load("@rules_dhall//:rules.bzl", "dhall_library")
 dhall_library()
 ```
 
@@ -47,7 +50,7 @@ verbose    | __bool; optional.__  If True, will output verbose logging to the co
 
 ### dhall_text / dhall_to_yaml / dhall_to_json
 
-These output rules produce some non-dhall files from a dhall expression.
+These rules produce some non-dhall files from a dhall expression.
 
 Attribute | Description |
 ----------| -----------| 
@@ -57,6 +60,17 @@ srcs       | __List of labels; optional.__ List of additional dhall files that a
 deps       | __Dictionary of `path: label`; optional.__ Dictionary of dependencies (key: local file path, value: dhall_library label).
 verbose   | __bool; optional.__  If True, will output verbose logging to the console.
 args      | __List of string; optional.__ Pass additional arguments to dhall-to-yaml, dhall-to-json, etc.
+
+### yaml_to_dhall / json_to_dhall
+
+These input rules take some non-dhall files and produce a dhall expression.
+
+Attribute | Description |
+----------| -----------| 
+name       | __string; required.__
+file | __label; required.__ JSON / YAML input file.
+schema       | __File; optional.__ Schema file (dhall file containing a single type / schema).
+args      | __List of string; optional.__ Pass additional arguments to json-to-dhall / yaml-to-dhall.
 
 ## Utility target
 

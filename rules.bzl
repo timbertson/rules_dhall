@@ -1,4 +1,4 @@
-load('//toolchain:setup.bzl', 'TOOLCHAIN')
+load('setup.bzl', 'TOOLCHAIN')
 
 DhallLibrary = provider(
         doc="Compiled dhall package",
@@ -154,6 +154,27 @@ def _output_impl(ctx):
     _Deps(deps = ctx.attr.deps),
   ]
 
+def _input_impl(ctx):
+  file = _extract_file(ctx)
+  schema_args = []
+  srcs = [file]
+  schema = ctx.attr.schema
+  if schema:
+      schema_file = schema.files.to_list()[0]
+      srcs.append(schema_file)
+      schema_args.append('./' + schema_file.path)
+  output = ctx.actions.declare_file(ctx.label.name)
+  _exec_dhall(ctx,
+              ctx.attr.exe,
+              ctx.attr.args + schema_args + ['--file', file.path],
+              src_depset = depset(direct=srcs),
+              output = output,
+              deps = None)
+
+  return [
+    DefaultInfo(files = depset([ output ])),
+  ]
+
 def _make_rule(implementation, **kw):
     args = {}
     args.update(kw)
@@ -208,6 +229,7 @@ def _util_impl(ctx):
       is_executable=True)
 
   return DefaultInfo(executable = exe, runfiles = ctx.runfiles(files=runfiles))
+
 COMMON_ATTRS = {
   "file": attr.label(allow_single_file = True, mandatory = True),
   "srcs": attr.label_list(allow_files = True),
@@ -229,6 +251,17 @@ OUTPUT_ATTRS.update({
 _output_rule = _make_rule(
     implementation = _output_impl,
     attrs = OUTPUT_ATTRS,
+)
+
+INPUT_ATTRS = {
+  "file": attr.label(allow_single_file = True, mandatory = True),
+  "schema": attr.label(allow_single_file = True, mandatory = False),
+  "exe": attr.string(mandatory = True),
+  "args": attr.string_list(mandatory = False, default=[]),
+}
+_input_rule = _make_rule(
+    implementation = _input_impl,
+    attrs = INPUT_ATTRS,
 )
 
 _dhall_util = rule(
@@ -273,3 +306,9 @@ def dhall_to_json(**kw):
 
 def dhall_to_yaml(**kw):
     return _output_rule(exe='dhall-to-yaml', dhall_args=[], **_fix_args(kw))
+
+def json_to_dhall(**kw):
+    return _input_rule(exe='json-to-dhall', **kw)
+
+def yaml_to_dhall(**kw):
+    return _input_rule(exe='yaml-to-dhall', **kw)
