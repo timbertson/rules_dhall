@@ -1,5 +1,6 @@
 DhallInfo = provider(
     doc = "Dhall binaries",
+    # TODO rename binaries
     fields = ["bin_dirs"],
 )
 

@@ -5,9 +5,4 @@ sh_binary(
     srcs = ["wrapper.sh"],
 )
 
-sh_binary(
-    name = "deps",
-    srcs = ["deps.sh"],
-)
-
 exports_files(["util-template.sh"])

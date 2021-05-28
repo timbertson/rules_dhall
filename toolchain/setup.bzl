@@ -47,7 +47,7 @@ def extract_urls(json):
 
 
 # generate a repo with downloaded binaries for a specific platform
-def _setup_impl(ctx):
+def _binaries_impl(ctx):
   version = ctx.attr.version
   ctx.download(
       "https://api.github.com/repos/dhall-lang/dhall-haskell/releases/tags/" + version,
@@ -55,47 +55,54 @@ def _setup_impl(ctx):
       sha256 = DIGESTS.get(version) or '')
   json = ctx.read("release.json")
 
-  build_lines = [
-    'package(default_visibility = ["//visibility:public"])',
-    'load("@dhall_toolchain//:dhall.bzl", "dhall_toolchain")',
-  ]
-
   for (platform, arch), impls in extract_urls(json).items():
     key='%s-%s' % (platform, arch)
     if key != ctx.attr.platform:
       continue
 
-    bin_dirs = []
     for tool, url in impls.items():
       digest_key = "%s-%s-%s" % (tool, version, key)
       digest = DIGESTS.get(digest_key)
       if digest == None:
         print("Note: no known digest for %s, add it to @rules_dhall/toolchain/setup.bzl for better caching" % digest_key)
       ctx.download_and_extract(url=url, output=tool, sha256=digest or '')
-      build_lines.append('filegroup(name="%s", srcs=glob(["%s/bin/*"]))' % (tool, tool))
-      bin_dirs.extend([
-          '    ":%s",' % tool
-      ])
+  ctx.file("BUILD", 'filegroup(name="binaries", srcs=glob(["**/bin/*"]), visibility=["//visibility:public"])')
 
-    build_lines.extend([
-      'dhall_toolchain(',
-      '  name="dhall-impl-%s",' % (key,),
-      '  bin_dirs=[',
-    ] + bin_dirs + [
-      '  ]',
-      ')',
-    ])
+_binaries = repository_rule(
+    implementation=_binaries_impl,
+    local = False,
+    attrs = {
+        "version": attr.string(mandatory=True),
+        "platform": attr.string(mandatory=True),
+    },
+)
 
+# Generate a single repo with all toolchain definitions
+# It's separate from the toolchain binaries so that we only
+# end up downloading binaries we need.
+def _dhall_toolchain_impl(ctx):
+  ctx.template("dhall.bzl", Label("//toolchain:dhall.bzl"))
+  build_lines = [
+    'package(default_visibility = ["//visibility:public"])',
+    'toolchain_type(name = "toolchain_type")',
+    'load("@dhall_toolchain//:dhall.bzl", "dhall_toolchain")',
+  ]
+
+  for key in PLATFORMS:
+    (platform, arch) = key.split('-')
     constraints = [
       '    "@platforms//os:%s",' % platform,
       '    "@platforms//cpu:%s",' % arch,
     ]
-
     build_lines.extend([
+      'dhall_toolchain(',
+      '  name="dhall-toolchain-%s",' % key,
+      '  bin_dirs=["@dhall_toolchain_bin_%s//:binaries"]' % key,
+      ')',
       'toolchain(',
-      '  name="dhall-%s",' % key,
-      '  toolchain="dhall-impl-%s",' % key,
-      '  toolchain_type="%s",' % TOOLCHAIN,
+      '  name="toolchain-%s",' % key,
+      '  toolchain="dhall-toolchain-%s",' % key,
+      '  toolchain_type="toolchain_type",',
       '  exec_compatible_with = [',
     ] + constraints + [
       '  ],',
@@ -107,72 +114,17 @@ def _setup_impl(ctx):
 
   ctx.file("BUILD", "\n".join(build_lines))
 
-_setup_dhall = repository_rule(
-    implementation=_setup_impl,
+_dhall_toolchain = repository_rule(
+    implementation=_dhall_toolchain_impl,
     local = False,
-    attrs = {
-        "version": attr.string(mandatory=True),
-        "platform": attr.string(mandatory=True),
-    },
 )
 
-# toolchain repo holds the common type & definition functions shared by
-# each platform-specific repo
-def _toolchain_repo_impl(ctx):
-  ctx.file("BUILD", """
-package(default_visibility = ["//visibility:public"])
-toolchain_type(name = "toolchain_type")
-""")
-  ctx.template("dhall.bzl", Label("//toolchain:dhall.bzl"))
-
-_toolchain_repo = repository_rule(
-    _toolchain_repo_impl,
-)
-
-# some parts from https://github.com/gregmagolan/rules_nodejs/blob/596018a96ed2d7f872609ee20ea65ce0b943dfac/internal/node/node_repositories.bzl
-def os_name(rctx):
-    os_name = rctx.os.name.lower()
-    if os_name.startswith("mac os"):
-        return PLATFORMS[0]
-    elif os_name.startswith("linux"):
-        return PLATFORMS[1]
-    elif os_name.find("windows") != -1:
-        return PLATFORMS[2]
-    else:
-        fail("Unsupported operating system: " + os_name)
-
-# make an alias for @dhall_toolchain_PLATFORM
-# so that we can conveniently register @dhall_toolchain_host as the single impl
-# (we don't know what the host is in a .bzl file, we can only
-# find it out from within a rule impl)
-def _host_alias_impl(ctx):
-    host_platform = os_name(ctx)
-    platform = ctx.attr.platform or host_platform
-    ctx.file("BUILD", """
-package(default_visibility = ["//visibility:public"])
-alias(name = "dhall", actual = "@dhall_toolchain_%s//:dhall-%s")
-""" % (platform, platform))
-
-_host_alias = repository_rule(
-    _host_alias_impl,
-    attrs = {
-        "platform": attr.string(mandatory=False, default=''),
-    },
-)
-
-def setup_dhall(version, install=True):
-  _toolchain_repo(name="dhall_toolchain")
+def setup_dhall(version):
+  _dhall_toolchain(name="dhall_toolchain")
   for platform in PLATFORMS:
-    _setup_dhall(
-        name = "dhall_toolchain_%s" % platform,
+    _binaries(
+        name = "dhall_toolchain_bin_%s" % platform,
         version = version,
         platform = platform,
     )
-  if install:
-    _host_alias(name="dhall_toolchain_host")
-    native.register_toolchains('@dhall_toolchain_host//:dhall')
-
-# TODO does this even work?
-def register_toolchains(*platforms):
-  for platform in platforms:
-    native.register_toolchains('@dhall_toolchain_%s//:dhall-%s' % (platform, platform))
+    native.register_toolchains('@dhall_toolchain//:toolchain-%s' % platform)
